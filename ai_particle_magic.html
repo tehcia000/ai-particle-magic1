@@ -1,0 +1,826 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI粒子魔法 - 斗转星移</title>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/hands.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1675466862/camera_utils.js" crossorigin="anonymous"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            background: #000;
+            overflow: hidden;
+            font-family: 'Microsoft YaHei', sans-serif;
+            cursor: crosshair;
+        }
+
+        #canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 1;
+        }
+
+        #ui-layer {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 10;
+            pointer-events: none;
+        }
+
+        .title {
+            position: absolute;
+            top: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #fff;
+            font-size: 28px;
+            font-weight: 300;
+            letter-spacing: 8px;
+            text-shadow: 0 0 20px rgba(100, 180, 255, 0.8), 0 0 40px rgba(100, 180, 255, 0.4);
+            opacity: 0.9;
+            animation: titlePulse 4s ease-in-out infinite;
+            white-space: nowrap;
+        }
+
+        @keyframes titlePulse {
+            0%, 100% { opacity: 0.7; text-shadow: 0 0 20px rgba(100, 180, 255, 0.6); }
+            50% { opacity: 1; text-shadow: 0 0 30px rgba(100, 180, 255, 1), 0 0 60px rgba(100, 180, 255, 0.5); }
+        }
+
+        .status-panel {
+            position: absolute;
+            bottom: 30px;
+            left: 30px;
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 13px;
+            line-height: 1.8;
+            pointer-events: auto;
+        }
+
+        .status-panel .label {
+            color: rgba(100, 200, 255, 0.8);
+            margin-right: 8px;
+        }
+
+        .gesture-indicator {
+            position: absolute;
+            bottom: 30px;
+            right: 30px;
+            text-align: right;
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 13px;
+        }
+
+        .gesture-indicator .gesture-name {
+            color: #ffd700;
+            font-size: 18px;
+            margin-top: 5px;
+            text-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
+        }
+
+        .audio-bar {
+            position: absolute;
+            bottom: 100px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 200px;
+            height: 4px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 2px;
+            overflow: hidden;
+        }
+
+        .audio-fill {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, #00ffff, #ff00ff);
+            border-radius: 2px;
+            transition: width 0.05s linear;
+        }
+
+        .permission-btn {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            padding: 15px 40px;
+            background: linear-gradient(135deg, rgba(100, 180, 255, 0.2), rgba(150, 100, 255, 0.2));
+            border: 1px solid rgba(100, 180, 255, 0.5);
+            color: #fff;
+            font-size: 16px;
+            cursor: pointer;
+            border-radius: 30px;
+            letter-spacing: 4px;
+            backdrop-filter: blur(10px);
+            transition: all 0.3s ease;
+            pointer-events: auto;
+            z-index: 100;
+        }
+
+        .permission-btn:hover {
+            background: linear-gradient(135deg, rgba(100, 180, 255, 0.4), rgba(150, 100, 255, 0.4));
+            box-shadow: 0 0 30px rgba(100, 180, 255, 0.5);
+            transform: translate(-50%, -50%) scale(1.05);
+        }
+
+        .hidden { display: none !important; }
+
+        #video-input {
+            position: fixed;
+            bottom: 10px;
+            right: 10px;
+            width: 160px;
+            height: 120px;
+            border-radius: 8px;
+            opacity: 0.3;
+            z-index: 5;
+            object-fit: cover;
+            border: 1px solid rgba(100, 180, 255, 0.3);
+        }
+
+        .finger-count {
+            position: absolute;
+            top: 80px;
+            right: 30px;
+            color: rgba(255, 255, 255, 0.5);
+            font-size: 14px;
+        }
+
+        .finger-count span {
+            color: #00ffff;
+            font-size: 24px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+
+    <div id="ui-layer">
+        <div class="title">AI粒子魔法-斗转星移</div>
+
+        <button class="permission-btn" id="startBtn">开启星际之旅</button>
+
+        <div class="status-panel hidden" id="statusPanel">
+            <div><span class="label">粒子数:</span><span id="particleCount">0</span></div>
+            <div><span class="label">星阵模式:</span><span id="patternMode">自由飘散</span></div>
+            <div><span class="label">音频响应:</span><span id="audioStatus">待启动</span></div>
+            <div><span class="label">手势识别:</span><span id="gestureStatus">运行中</span></div>
+        </div>
+
+        <div class="gesture-indicator hidden" id="gesturePanel">
+            <div>当前星阵</div>
+            <div class="gesture-name" id="gestureName">--</div>
+        </div>
+
+        <div class="finger-count hidden" id="fingerPanel">
+            识别手指: <span id="fingerNum">0</span>
+        </div>
+
+        <div class="audio-bar hidden" id="audioBar">
+            <div class="audio-fill" id="audioFill"></div>
+        </div>
+    </div>
+
+    <video id="video-input" class="hidden" playsinline></video>
+
+    <script>
+        // ==================== 粒子系统核心 ====================
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        let width, height;
+
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+        }
+        resize();
+        window.addEventListener('resize', resize);
+
+        // 北斗七星正确坐标
+        const BIG_DIPPER = [
+            { x: -140, y: -60 },   // 天枢
+            { x: -50, y: -50 },    // 天璇
+            { x: -120, y: 10 },    // 天玑
+            { x: -30, y: 20 },     // 天权
+            { x: 30, y: 10 },      // 玉衡
+            { x: 90, y: -10 },     // 开阳
+            { x: 150, y: -40 }     // 摇光
+        ];
+
+        const DIPPER_CONNECTIONS = [
+            [0, 1], [1, 3], [3, 2], [2, 0],
+            [3, 4], [4, 5], [5, 6]
+        ];
+
+        // 粒子类 - 星轨飘散效果
+        class Particle {
+            constructor(x, y, isMouseTrail = false) {
+                this.x = x || Math.random() * width;
+                this.y = y || Math.random() * height;
+                this.vx = (Math.random() - 0.5) * 0.3;
+                this.vy = (Math.random() - 0.5) * 0.3;
+                this.size = Math.random() * 1.5 + 0.5;
+                this.alpha = Math.random() * 0.6 + 0.2;
+                this.life = 1;
+                this.decay = isMouseTrail ? 0.008 + Math.random() * 0.008 : 0.002 + Math.random() * 0.003;
+                this.hue = isMouseTrail ? 200 + Math.random() * 40 : Math.random() * 60 + 180;
+                this.trail = [];
+                this.maxTrail = isMouseTrail ? 15 : 8;
+                this.isMouseTrail = isMouseTrail;
+                this.bornTime = Date.now();
+            }
+
+            update(mouseX, mouseY, pattern, centerScale, sevenStars) {
+                // 保存轨迹
+                this.trail.push({ x: this.x, y: this.y, alpha: this.alpha, time: Date.now() });
+                if (this.trail.length > this.maxTrail) this.trail.shift();
+
+                // 鼠标交互 - 星轨飘散特效
+                if (mouseX !== null && mouseY !== null) {
+                    const dx = this.x - mouseX;
+                    const dy = this.y - mouseY;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+
+                    if (dist < 200 && dist > 0) {
+                        const force = (200 - dist) / 200;
+                        // 被鼠标推开，形成星轨飘散
+                        this.vx += (dx / dist) * force * 1.2;
+                        this.vy += (dy / dist) * force * 1.2;
+                        // 颜色变化
+                        this.hue = (this.hue + 3) % 360;
+                        this.life = Math.min(this.life + 0.03, 1);
+                    }
+                }
+
+                // 星阵模式 - 粒子围绕七星发散游动
+                if (pattern && pattern.points && pattern.points.length > 0) {
+                    const idx = particles.indexOf(this);
+                    if (idx >= 0) {
+                        const target = pattern.points[idx % pattern.points.length];
+                        if (target) {
+                            const dx = target.x - this.x;
+                            const dy = target.y - this.y;
+                            const dist = Math.sqrt(dx * dx + dy * dy);
+
+                            // 距离目标点一定距离时施加微弱引力，保持发散游动
+                            if (dist > 100) {
+                                this.vx += dx * 0.008;
+                                this.vy += dy * 0.008;
+                            } else if (dist < 50) {
+                                // 太近了，向外发散
+                                this.vx -= dx * 0.015;
+                                this.vy -= dy * 0.015;
+                            }
+
+                            this.vx *= 0.97;
+                            this.vy *= 0.97;
+                        }
+                    }
+                } else {
+                    // 自由游动 - 缓缓游动消散
+                    this.vx *= 0.995;
+                    this.vy *= 0.995;
+
+                    // 微弱的随机游动，营造星斗流转
+                    this.vx += (Math.random() - 0.5) * 0.02;
+                    this.vy += (Math.random() - 0.5) * 0.02;
+
+                    // 围绕七星缓慢旋转的引力
+                    if (sevenStars && sevenStars.length > 0) {
+                        const cx = width / 2;
+                        const cy = height / 2;
+                        const dx = cx - this.x;
+                        const dy = cy - this.y;
+                        const dist = Math.sqrt(dx * dx + dy * dy);
+                        if (dist > 250) {
+                            this.vx += dx * 0.0002;
+                            this.vy += dy * 0.0002;
+                        }
+                    }
+
+                    this.x += this.vx;
+                    this.y += this.vy;
+                }
+
+                // 中心七星微弱引力
+                if (sevenStars && sevenStars.length > 0) {
+                    const nearestStar = findNearestStar(this.x, this.y, sevenStars);
+                    if (nearestStar) {
+                        const dx = nearestStar.x - this.x;
+                        const dy = nearestStar.y - this.y;
+                        const dist = Math.sqrt(dx * dx + dy * dy);
+                        if (dist > 80 && dist < 400) {
+                            const gravity = 0.0008;
+                            this.vx += dx * gravity;
+                            this.vy += dy * gravity;
+                        }
+                    }
+                }
+
+                // 音频响应
+                if (centerScale > 1) {
+                    const cx = width / 2;
+                    const cy = height / 2;
+                    const dx = cx - this.x;
+                    const dy = cy - this.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    if (dist > 150 * centerScale && dist > 0) {
+                        const gravity = (centerScale - 1) * 0.0003;
+                        this.vx += dx * gravity / dist;
+                        this.vy += dy * gravity / dist;
+                    }
+                }
+
+                // 边界处理
+                if (this.x < -100) this.x = width + 100;
+                if (this.x > width + 100) this.x = -100;
+                if (this.y < -100) this.y = height + 100;
+                if (this.y > height + 100) this.y = -100;
+
+                // 缓缓消散
+                this.life -= this.decay;
+                if (this.life < 0) this.life = 0;
+            }
+
+            draw(ctx) {
+                if (this.life <= 0) return;
+
+                const currentAlpha = this.alpha * this.life;
+
+                // 绘制星轨拖尾
+                this.trail.forEach((p, i) => {
+                    const trailAlpha = currentAlpha * (i / this.trail.length) * 0.5;
+                    const trailSize = this.size * (i / this.trail.length) * 0.6;
+                    if (trailAlpha > 0.01) {
+                        ctx.beginPath();
+                        ctx.arc(p.x, p.y, trailSize, 0, Math.PI * 2);
+                        ctx.fillStyle = `hsla(${this.hue}, 80%, 70%, ${trailAlpha})`;
+                        ctx.fill();
+                    }
+                });
+
+                // 绘制粒子本体
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fillStyle = `hsla(${this.hue}, 80%, 75%, ${currentAlpha})`;
+                ctx.fill();
+
+                // 光晕
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size * 4, 0, Math.PI * 2);
+                ctx.fillStyle = `hsla(${this.hue}, 80%, 70%, ${currentAlpha * 0.08})`;
+                ctx.fill();
+            }
+        }
+
+        function findNearestStar(x, y, stars) {
+            let nearest = null;
+            let minDist = Infinity;
+            stars.forEach(star => {
+                const dx = star.x - x;
+                const dy = star.y - y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist < minDist) {
+                    minDist = dist;
+                    nearest = star;
+                }
+            });
+            return nearest;
+        }
+
+        // 粒子管理 - 上限400
+        const particles = [];
+        const MAX_PARTICLES = 400;
+
+        function initParticles() {
+            for (let i = 0; i < 200; i++) {
+                particles.push(new Particle());
+            }
+        }
+
+        // 鼠标轨迹粒子生成
+        let lastMouseX = null;
+        let lastMouseY = null;
+
+        function spawnMouseTrail(x, y) {
+            if (particles.length >= MAX_PARTICLES) return;
+
+            // 在鼠标路径上生成多个飘散粒子
+            const count = 2 + Math.floor(Math.random() * 3);
+            for (let i = 0; i < count; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const dist = Math.random() * 30;
+                const px = x + Math.cos(angle) * dist;
+                const py = y + Math.sin(angle) * dist;
+                const p = new Particle(px, py, true);
+                // 赋予初始飘散速度
+                p.vx = Math.cos(angle) * (0.5 + Math.random() * 1.5);
+                p.vy = Math.sin(angle) * (0.5 + Math.random() * 1.5);
+                p.size = Math.random() * 2 + 1;
+                p.hue = 180 + Math.random() * 60;
+                particles.push(p);
+            }
+        }
+
+        // 星阵模式定义
+        const patterns = {
+            0: null,
+            1: { name: '北极星阵', points: [] },
+            2: { name: '双星系统', points: [] },
+            3: { name: '三体星阵', points: [] },
+            4: { name: '七星连线', points: [] },
+            5: { name: '五行星图', points: [] },
+        };
+
+        function generatePattern(fingerCount) {
+            const cx = width / 2;
+            const cy = height / 2;
+            const radius = Math.min(width, height) * 0.28;
+            const points = [];
+
+            switch(fingerCount) {
+                case 1:
+                    for (let i = 0; i < 150; i++) {
+                        const angle = (i / 150) * Math.PI * 2;
+                        const r = radius * (0.3 + Math.random() * 0.7);
+                        points.push({ x: cx + Math.cos(angle) * r, y: cy + Math.sin(angle) * r });
+                    }
+                    break;
+                case 2:
+                    for (let i = 0; i < 75; i++) {
+                        const angle = (i / 75) * Math.PI * 2;
+                        const r = radius * (0.3 + Math.random() * 0.5);
+                        points.push({ x: cx - radius*0.4 + Math.cos(angle) * r, y: cy + Math.sin(angle) * r * 0.8 });
+                    }
+                    for (let i = 0; i < 75; i++) {
+                        const angle = (i / 75) * Math.PI * 2;
+                        const r = radius * (0.3 + Math.random() * 0.5);
+                        points.push({ x: cx + radius*0.4 + Math.cos(angle) * r, y: cy + Math.sin(angle) * r * 0.8 });
+                    }
+                    break;
+                case 3:
+                    const triangle = [
+                        { x: cx, y: cy - radius * 0.7 },
+                        { x: cx - radius * 0.6, y: cy + radius * 0.4 },
+                        { x: cx + radius * 0.6, y: cy + radius * 0.4 }
+                    ];
+                    for (let i = 0; i < 150; i++) {
+                        const edge = i % 3;
+                        const next = (edge + 1) % 3;
+                        const t = Math.random();
+                        const spread = 80;
+                        points.push({
+                            x: triangle[edge].x + (triangle[next].x - triangle[edge].x) * t + (Math.random() - 0.5) * spread,
+                            y: triangle[edge].y + (triangle[next].y - triangle[edge].y) * t + (Math.random() - 0.5) * spread
+                        });
+                    }
+                    break;
+                case 4:
+                    const scale = Math.min(width, height) / 500;
+                    const sevenPoints = BIG_DIPPER.map(offset => ({
+                        x: cx + offset.x * scale,
+                        y: cy + offset.y * scale
+                    }));
+
+                    for (let i = 0; i < 150; i++) {
+                        const starIdx = i % 7;
+                        const star = sevenPoints[starIdx];
+                        const angle = Math.random() * Math.PI * 2;
+                        const r = 40 + Math.random() * 100;
+                        points.push({
+                            x: star.x + Math.cos(angle) * r,
+                            y: star.y + Math.sin(angle) * r
+                        });
+                    }
+                    break;
+                case 5:
+                    for (let i = 0; i < 150; i++) {
+                        const angle = (i / 150) * Math.PI * 2;
+                        const r = radius * (0.4 + 0.4 * Math.sin(angle * 5) + Math.random() * 0.2);
+                        points.push({ x: cx + Math.cos(angle) * r, y: cy + Math.sin(angle) * r });
+                    }
+                    break;
+            }
+
+            return { name: patterns[fingerCount]?.name || '自由飘散', points };
+        }
+
+        // ==================== 交互状态 ====================
+        let mouseX = null, mouseY = null;
+        let currentPattern = null;
+        let fingerCount = 0;
+        let centerStarScale = 1;
+        let audioLevel = 0;
+
+        document.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+
+            // 鼠标滑动触发星轨粒子飘散
+            if (lastMouseX !== null && lastMouseY !== null) {
+                const dx = e.clientX - lastMouseX;
+                const dy = e.clientY - lastMouseY;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+
+                // 根据鼠标移动距离生成飘散粒子
+                if (dist > 5) {
+                    const steps = Math.floor(dist / 8);
+                    for (let i = 0; i < steps; i++) {
+                        const t = i / steps;
+                        const px = lastMouseX + dx * t;
+                        const py = lastMouseY + dy * t;
+                        spawnMouseTrail(px, py);
+                    }
+                }
+            }
+
+            lastMouseX = e.clientX;
+            lastMouseY = e.clientY;
+        });
+
+        document.addEventListener('mouseleave', () => {
+            mouseX = null;
+            mouseY = null;
+            lastMouseX = null;
+            lastMouseY = null;
+        });
+
+        // ==================== 手势识别 ====================
+        let hands = null;
+        let camera = null;
+
+        async function initGesture() {
+            const videoElement = document.getElementById('video-input');
+
+            hands = new Hands({
+                locateFile: (file) => {
+                    return `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/${file}`;
+                }
+            });
+
+            hands.setOptions({
+                maxNumHands: 1,
+                modelComplexity: 1,
+                minDetectionConfidence: 0.5,
+                minTrackingConfidence: 0.5
+            });
+
+            hands.onResults((results) => {
+                if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                    const landmarks = results.multiHandLandmarks[0];
+                    const count = countFingers(landmarks);
+
+                    if (count !== fingerCount) {
+                        fingerCount = count;
+                        document.getElementById('fingerNum').textContent = fingerCount;
+
+                        if (fingerCount > 0 && fingerCount <= 5) {
+                            currentPattern = generatePattern(fingerCount);
+                            document.getElementById('gestureName').textContent = currentPattern.name;
+                            document.getElementById('patternMode').textContent = currentPattern.name;
+                        } else {
+                            currentPattern = null;
+                            document.getElementById('gestureName').textContent = '自由飘散';
+                            document.getElementById('patternMode').textContent = '自由飘散';
+                        }
+                    }
+                }
+            });
+
+            camera = new Camera(videoElement, {
+                onFrame: async () => {
+                    await hands.send({ image: videoElement });
+                },
+                width: 320,
+                height: 240
+            });
+
+            await camera.start();
+        }
+
+        function countFingers(landmarks) {
+            const tips = [8, 12, 16, 20];
+            const bases = [5, 9, 13, 17];
+            let count = 0;
+
+            for (let i = 0; i < 4; i++) {
+                if (landmarks[tips[i]].y < landmarks[bases[i]].y) {
+                    count++;
+                }
+            }
+
+            const thumbTip = landmarks[4];
+            const thumbBase = landmarks[2];
+            if (Math.abs(thumbTip.x - thumbBase.x) > 0.05) {
+                count++;
+            }
+
+            return count;
+        }
+
+        // ==================== 音频处理 ====================
+        let audioContext = null;
+        let analyser = null;
+        let microphone = null;
+
+        async function initAudio() {
+            try {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                analyser = audioContext.createAnalyser();
+                analyser.fftSize = 256;
+
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                microphone = audioContext.createMediaStreamSource(stream);
+                microphone.connect(analyser);
+
+                document.getElementById('audioStatus').textContent = '运行中';
+            } catch (err) {
+                console.log('音频初始化失败:', err);
+                document.getElementById('audioStatus').textContent = '权限拒绝';
+            }
+        }
+
+        function updateAudio() {
+            if (!analyser) return;
+
+            const dataArray = new Uint8Array(analyser.frequencyBinCount);
+            analyser.getByteFrequencyData(dataArray);
+
+            let sum = 0;
+            for (let i = 0; i < dataArray.length; i++) {
+                sum += dataArray[i];
+            }
+            const average = sum / dataArray.length;
+
+            audioLevel = average / 255;
+            document.getElementById('audioFill').style.width = (audioLevel * 100) + '%';
+            centerStarScale = 1 + audioLevel * 2;
+        }
+
+        // ==================== 七星绘制 ====================
+        function drawSevenStars(ctx, cx, cy, scale) {
+            const stars = BIG_DIPPER.map(offset => ({
+                x: cx + offset.x * scale,
+                y: cy + offset.y * scale
+            }));
+
+            ctx.strokeStyle = 'rgba(255, 215, 0, 0.4)';
+            ctx.lineWidth = 2;
+            ctx.shadowColor = 'rgba(255, 215, 0, 0.6)';
+            ctx.shadowBlur = 10;
+
+            DIPPER_CONNECTIONS.forEach(([startIdx, endIdx]) => {
+                ctx.beginPath();
+                ctx.moveTo(stars[startIdx].x, stars[startIdx].y);
+                ctx.lineTo(stars[endIdx].x, stars[endIdx].y);
+                ctx.stroke();
+            });
+
+            ctx.shadowBlur = 0;
+
+            const starNames = ['天枢', '天璇', '天玑', '天权', '玉衡', '开阳', '摇光'];
+            const starSizes = [7, 6.5, 6, 5, 7, 6.5, 6];
+
+            stars.forEach((star, i) => {
+                const size = starSizes[i] * centerStarScale;
+
+                ctx.beginPath();
+                ctx.arc(star.x, star.y, size * 2.5, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(255, 215, 0, ${0.1 + audioLevel * 0.15})`;
+                ctx.fill();
+
+                ctx.beginPath();
+                ctx.arc(star.x, star.y, size, 0, Math.PI * 2);
+                ctx.fillStyle = '#fff';
+                ctx.shadowColor = 'rgba(255, 215, 0, 0.8)';
+                ctx.shadowBlur = 15;
+                ctx.fill();
+                ctx.shadowBlur = 0;
+
+                ctx.fillStyle = 'rgba(255, 215, 0, 0.6)';
+                ctx.font = '11px Microsoft YaHei';
+                ctx.textAlign = 'center';
+                ctx.fillText(starNames[i], star.x, star.y - size - 8);
+            });
+
+            return stars;
+        }
+
+        // ==================== 动画循环 ====================
+        function animate() {
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
+            ctx.fillRect(0, 0, width, height);
+
+            updateAudio();
+
+            const cx = width / 2;
+            const cy = height / 2;
+            const scale = Math.min(width, height) / 500;
+            const sevenStars = drawSevenStars(ctx, cx, cy, scale);
+
+            if (fingerCount === 4) {
+                ctx.strokeStyle = 'rgba(255, 215, 0, 0.9)';
+                ctx.lineWidth = 4;
+                ctx.shadowColor = 'rgba(255, 215, 0, 1)';
+                ctx.shadowBlur = 25;
+
+                DIPPER_CONNECTIONS.forEach(([startIdx, endIdx]) => {
+                    const start = sevenStars[startIdx];
+                    const end = sevenStars[endIdx];
+                    ctx.beginPath();
+                    ctx.moveTo(start.x, start.y);
+                    ctx.lineTo(end.x, end.y);
+                    ctx.stroke();
+                });
+
+                ctx.shadowBlur = 0;
+
+                sevenStars.forEach(star => {
+                    ctx.beginPath();
+                    ctx.arc(star.x, star.y, 12 * centerStarScale, 0, Math.PI * 2);
+                    ctx.fillStyle = 'rgba(255, 215, 0, 0.25)';
+                    ctx.fill();
+                });
+            }
+
+            // 补充粒子 - 上限400
+            if (particles.length < MAX_PARTICLES && Math.random() > 0.85) {
+                particles.push(new Particle());
+            }
+
+            // 更新和绘制粒子
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+                p.update(mouseX, mouseY, currentPattern, centerStarScale, sevenStars);
+                p.draw(ctx);
+
+                if (p.life <= 0) {
+                    particles.splice(i, 1);
+                }
+            }
+
+            // 星阵模式下的粒子连线
+            if (currentPattern && currentPattern.points.length > 0 && fingerCount !== 4) {
+                ctx.strokeStyle = 'rgba(100, 200, 255, 0.05)';
+                ctx.lineWidth = 0.5;
+                for (let i = 0; i < Math.min(particles.length, 30); i++) {
+                    for (let j = i + 1; j < Math.min(particles.length, 30); j++) {
+                        const dx = particles[i].x - particles[j].x;
+                        const dy = particles[i].y - particles[j].y;
+                        const dist = Math.sqrt(dx * dx + dy * dy);
+                        if (dist < 100) {
+                            ctx.beginPath();
+                            ctx.moveTo(particles[i].x, particles[i].y);
+                            ctx.lineTo(particles[j].x, particles[j].y);
+                            ctx.stroke();
+                        }
+                    }
+                }
+            }
+
+            document.getElementById('particleCount').textContent = particles.length;
+
+            requestAnimationFrame(animate);
+        }
+
+        // ==================== 启动控制 ====================
+        document.getElementById('startBtn').addEventListener('click', async () => {
+            document.getElementById('startBtn').classList.add('hidden');
+            document.getElementById('statusPanel').classList.remove('hidden');
+            document.getElementById('gesturePanel').classList.remove('hidden');
+            document.getElementById('fingerPanel').classList.remove('hidden');
+            document.getElementById('audioBar').classList.remove('hidden');
+            document.getElementById('video-input').classList.remove('hidden');
+
+            initParticles();
+
+            try {
+                await initGesture();
+            } catch (e) {
+                console.log('手势初始化失败:', e);
+                document.getElementById('gestureStatus').textContent = '初始化失败';
+            }
+
+            try {
+                await initAudio();
+            } catch (e) {
+                console.log('音频初始化失败:', e);
+            }
+
+            animate();
+        });
+
+        ctx.fillStyle = '#000';
+        ctx.fillRect(0, 0, width, height);
+    </script>
+</body>
+</html>
